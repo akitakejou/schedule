@@ -1,97 +1,129 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset='utf-8'>
-    <meta http-equiv='X-UA-Compatible' content='IE=edge'>
-    <title>Page Title</title>
-    <meta name='viewport' content='width=device-width, initial-scale=1'>
-    <link rel='stylesheet' type='text/css' media='screen' href='main.css'>
-    <script src='main.js'></script>
-</head>
-<body>
-    <h1>スケジュール</h1>
-        <input type="text" />
-        <input type="submit" value="push">
-</body>
-<head>
-         <title>カレンダー</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      display: flex;
-      justify-content: center;
-      margin-top: 50px;
-    }
-    table {
-      border-collapse: collapse;
-      width: 400px;
-      text-align: center;
-    }
-    th, td {
-      border: 1px solid #999;
-      padding: 10px;
-      width: 14.2%;
-    }
-    th {
-      background-color: #f2f2f2;
-    }
-    .sun { color: red; }
-    .sat { color: blue; }
-  </style>
-</head>
-<body>
+function generate() {
+  // 希望読み込み
+  employees.forEach(emp => {
+    emp.workLog = [];
+    emp.lastNight = -100;
 
-  <table>
-    <caption><h2>2026年2月</h2></caption>
-    <thead>
-      <tr>
-        <th class="sun">日</th>
-        <th>月</th>
-        <th>火</th>
-        <th>水</th>
-        <th>木</th>
-        <th>金</th>
-        <th class="sat">土</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td class="sun">1</td>
-        <td>2</td>
-        <td>3</td>
-        <td>4</td>
-        <td>5</td>
-        <td>6</td>
-        <td class="sat">7</td>
-      </tr>
-      <tr>
-        <td class="sun">8</td>
-        <td>9</td>
-        <td>10</td>
-        <td>11</td>
-        <td>12</td>
-        <td>13</td>
-        <td class="sat">14</td>
-      </tr>
-      <tr>
-        <td class="sun">15</td>
-        <td>16</td>
-        <td>17</td>
-        <td>18</td>
-        <td>19</td>
-        <td>20</td>
-        <td class="sat">21</td>
-      </tr>
-      <tr>
-        <td class="sun">22</td>
-        <td>23</td>
-        <td>24</td>
-        <td>25</td>
-        <td>26</td>
-        <td>27</td>
-        <td class="sat">28</td>
-      </tr>
-    </tbody>
-  </table>
-</body>
-</html>
+    for (let d = 1; d <= 7; d++) {
+      emp.pref[d] = document.getElementById(emp.name + "_" + d).value || "free";
+    }
+  });
+
+  let schedule = {};
+
+  for (let d = 1; d <= 7; d++) {
+    schedule[d] = {};
+
+    for (let h = 0; h < 24; h++) {
+
+      let candidates = [];
+
+      for (let emp of employees) {
+
+        // ---- ハード制約 ----
+        const pref = emp.pref[d];
+
+        if (pref === "off") continue;
+
+        if (pref.includes("-")) {
+          const [s,e] = pref.split("-").map(Number);
+          if (h < s || h >= e) continue;
+        }
+
+        if (emp.type === "student" && h >= 20) continue;
+
+        // 夜勤後2日休み
+        if (d - emp.lastNight <= 2) continue;
+
+        // ---- スコア ----
+        let score = 0;
+
+        if (pref === "free") score += 5;
+
+        if (pref.includes("-")) {
+          const [s,e] = pref.split("-").map(Number);
+          if (h >= s && h < e) score += 10;
+        }
+
+        // 偏り防止
+        score -= emp.workLog.length * 0.5;
+
+        candidates.push({emp, score});
+      }
+
+      // スコア順
+      candidates.sort((a,b)=>b.score-a.score);
+
+      let needed = (h >= 22 || h < 8) ? 2 : 2;
+
+      let assigned = [];
+
+      // ① まず正社員 or 派遣を1人確保
+      let core = candidates.find(c => c.emp.type === "full" || c.emp.type === "temp");
+
+      if (core) {
+        assigned.push(core.emp);
+      }
+
+      // ② 残り埋める
+      for (let c of candidates) {
+        if (assigned.length >= needed) break;
+        if (!assigned.includes(c.emp)) {
+          assigned.push(c.emp);
+        }
+      }
+
+      // ③ 足りなければ強制投入（応援＝派遣）
+      while (assigned.length < needed) {
+        assigned.push({name:"応援", type:"temp"});
+      }
+
+      // 記録
+      schedule[d][h] = assigned;
+
+      assigned.forEach(emp => {
+        if (emp.workLog) {
+          emp.workLog.push({d,h});
+          if (h >= 22 || h < 8) {
+            emp.lastNight = d;
+          }
+        }
+      });
+    }
+  }
+
+  render(schedule);
+}
+function render(schedule) {
+  let html = "<table><tr><th>名前</th>";
+
+  for (let d=1; d<=7; d++) html += "<th>"+d+"</th>";
+  html += "</tr>";
+
+  employees.forEach(emp => {
+    html += "<tr><td>"+emp.name+"</td>";
+
+    for (let d=1; d<=7; d++) {
+
+      let hours = [];
+
+      for (let h=0; h<24; h++) {
+        if (schedule[d][h].find(e => e.name === emp.name)) {
+          hours.push(h);
+        }
+      }
+
+      let cls = "";
+      if (hours.some(h=>h>=22||h<8)) cls="night";
+      else if (hours.length>0) cls="free";
+
+      html += `<td class="${cls}">${hours.length>0 ? "出" : "休"}</td>`;
+    }
+
+    html += "</tr>";
+  });
+
+  html += "</table>";
+
+  document.getElementById("result").innerHTML = html;
+}
